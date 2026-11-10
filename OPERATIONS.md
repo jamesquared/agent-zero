@@ -124,3 +124,4 @@ The Ember text does not tell the agent to ignore safety limits. The previous Age
 | Nov 9, 2026, ~7:00 PM | `python3 --version`; import probe for Flask, uvicorn, python-dotenv | Python 3.12.3; those packages are absent |
 | Nov 9, 2026, ~7:00 PM | `git checkout -b cursor/ember-operator-role-4ebe` | Branch created from `main` |
 | Nov 9, 2026, ~7:01 PM | Compare the two role files and walk the `agent0` search order | Files match. Loader selects `agents/agent0/prompts/agent.system.main.role.md`. That copy names Ember and Billymon and does not contain "never refuse" |
+| Nov 9, 2026, ~7:15 PM | Search workspace, home, and the Cursor store for Ember | Role copies collected under `ember-lore/`. Identity written to `ember-lore/EMBER_IDENTITY.md`. Sealed local index and case canvases were not copied into git |
