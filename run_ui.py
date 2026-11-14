@@ -1,5 +1,13 @@
-from datetime import timedelta
 import os
+
+from python.helpers.ram import reexec_if_needed
+
+if __name__ == "__main__":
+    # glibc reads MALLOC_ARENA_MAX at process start. Re-exec once when the
+    # defaults were missing so the rest of this file loads under the cap.
+    reexec_if_needed()
+
+from datetime import timedelta
 import secrets
 import time
 import socket

@@ -1,11 +1,13 @@
 import asyncio
+
 from python.helpers import runtime, whisper, settings
 from python.helpers.print_style import PrintStyle
 from python.helpers import kokoro_tts
+from python.helpers.ram import preload_local_embeddings
 import models
 
 
-async def preload():
+async def preload(warm_models: bool | None = None):
     try:
         set = settings.get_default_settings()
 
@@ -37,14 +39,20 @@ async def preload():
                 except Exception as e:
                     PrintStyle().error(f"Error in preload_kokoro: {e}")
 
-        # async tasks to preload
-        tasks = [
-            preload_embedding(),
-            # preload_whisper(),
-            # preload_kokoro()
-        ]
+        # The running server does not keep the embedding model resident unless
+        # A0_PRELOAD_EMBEDDINGS is set. ``python preload.py`` (image build)
+        # still passes warm_models=True so the weights land on disk.
+        if warm_models is None:
+            warm_models = preload_local_embeddings()
 
-        await asyncio.gather(*tasks, return_exceptions=True)
+        tasks = []
+        if warm_models:
+            tasks.append(preload_embedding())
+            # tasks.append(preload_whisper())
+            # tasks.append(preload_kokoro())
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         PrintStyle().print("Preload completed.")
     except Exception as e:
         PrintStyle().error(f"Error in preload: {e}")
@@ -54,4 +62,6 @@ async def preload():
 if __name__ == "__main__":
     PrintStyle().print("Running preload...")
     runtime.initialize()
-    asyncio.run(preload())
+    # Download weights into the image or local cache, then exit. The process
+    # ending is what releases the RAM; the server does not repeat this load.
+    asyncio.run(preload(warm_models=True))

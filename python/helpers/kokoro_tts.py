@@ -8,6 +8,7 @@ import soundfile as sf
 from python.helpers import runtime
 from python.helpers.print_style import PrintStyle
 from python.helpers.notification import NotificationManager, NotificationType, NotificationPriority
+from python.helpers.ram import IdleGuard, configure_torch_threads, local_model_idle_seconds
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -16,6 +17,17 @@ _pipeline = None
 _voice = "am_puck,am_onyx"
 _speed = 1.1
 is_updating_model = False
+
+
+def _drop_pipeline() -> None:
+    global _pipeline
+    if _pipeline is None:
+        return
+    _pipeline = None
+    PrintStyle.standard("Released Kokoro TTS model after idle.")
+
+
+_residency = IdleGuard(local_model_idle_seconds(), _drop_pipeline)
 
 
 async def preload():
@@ -33,29 +45,35 @@ async def preload():
 async def _preload():
     global _pipeline, is_updating_model
 
-    while is_updating_model:
-        await asyncio.sleep(0.1)
-
+    _residency.acquire()
     try:
-        is_updating_model = True
-        if not _pipeline:
-            NotificationManager.send_notification(
-                NotificationType.INFO,
-                NotificationPriority.NORMAL,
-                "Loading Kokoro TTS model...",
-                display_time=99,
-                group="kokoro-preload")
-            PrintStyle.standard("Loading Kokoro TTS model...")
-            from kokoro import KPipeline
-            _pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
-            NotificationManager.send_notification(
-                NotificationType.INFO,
-                NotificationPriority.NORMAL,
-                "Kokoro TTS model loaded.",
-                display_time=2,
-                group="kokoro-preload")
+        while is_updating_model:
+            await asyncio.sleep(0.1)
+
+        try:
+            is_updating_model = True
+            if not _pipeline:
+                NotificationManager.send_notification(
+                    NotificationType.INFO,
+                    NotificationPriority.NORMAL,
+                    "Loading Kokoro TTS model...",
+                    display_time=99,
+                    group="kokoro-preload")
+                PrintStyle.standard("Loading Kokoro TTS model...")
+                configure_torch_threads()
+                # Imported on first synthesis. kokoro pulls torch with it.
+                from kokoro import KPipeline
+                _pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
+                NotificationManager.send_notification(
+                    NotificationType.INFO,
+                    NotificationPriority.NORMAL,
+                    "Kokoro TTS model loaded.",
+                    display_time=2,
+                    group="kokoro-preload")
+        finally:
+            is_updating_model = False
     finally:
-        is_updating_model = False
+        _residency.release()
 
 
 async def is_downloading():
@@ -99,14 +117,25 @@ async def synthesize_sentences(sentences: list[str]):
 
 
 async def _synthesize_sentences(sentences: list[str]):
+    _residency.acquire()
+    try:
+        return await _synthesize_loaded(sentences)
+    finally:
+        _residency.release()
+
+
+async def _synthesize_loaded(sentences: list[str]):
     await _preload()
+    pipeline = _pipeline
+    if pipeline is None:
+        raise RuntimeError("Kokoro TTS model is not loaded")
 
     combined_audio = []
 
     try:
         for sentence in sentences:
             if sentence.strip():
-                segments = _pipeline(sentence.strip(), voice=_voice, speed=_speed) # type: ignore
+                segments = pipeline(sentence.strip(), voice=_voice, speed=_speed) # type: ignore
                 segment_list = list(segments)
 
                 for segment in segment_list:

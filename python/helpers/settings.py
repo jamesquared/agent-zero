@@ -632,6 +632,7 @@ def _apply_settings(previous: Settings | None):
             from python.helpers.memory import reload as memory_reload
 
             memory_reload()
+            models.release_local_embedding_models()
 
         # update mcp settings if necessary
         if not previous or _settings["mcp_servers"] != previous["mcp_servers"]:
