@@ -6,3 +6,9 @@ services:
       - ./agent-zero:/a0
     ports:
       - "50080:80"
+    # environment:
+    #   A0_DISABLE_SEARXNG: "1"          # do not run the SearXNG Python process
+    #   A0_PRELOAD_EMBEDDINGS: "0"       # default: load MiniLM on first memory use
+    #   A0_LOCAL_MODEL_IDLE_SECONDS: "300"
+    #   OMP_NUM_THREADS: "1"             # raise for faster local embedding batches
+    #   MALLOC_ARENA_MAX: "2"

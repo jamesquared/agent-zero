@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import logging
 import os
+import sys
 from typing import (
     Any,
     Awaitable,
@@ -21,6 +22,7 @@ from litellm.types.utils import ModelResponse
 
 from python.helpers import dotenv
 from python.helpers import settings, dirty_json
+from python.helpers.ram import release_heap
 from python.helpers.dotenv import load_dotenv
 from python.helpers.providers import ModelType as ProviderModelType, get_provider_config
 from python.helpers.rate_limiter import RateLimiter
@@ -40,7 +42,6 @@ from langchain_core.messages import (
     SystemMessage,
 )
 from langchain.embeddings.base import Embeddings
-from sentence_transformers import SentenceTransformer
 from pydantic import ConfigDict
 
 
@@ -730,7 +731,11 @@ class LocalSentenceTransformerWrapper(Embeddings):
         }
         st_kwargs = {k: v for k, v in (kwargs or {}).items() if k in st_allowed_keys}
 
-        self.model = SentenceTransformer(model, **st_kwargs)
+        # Imported on first local embedding use so startup does not load torch.
+        from python.helpers.local_embeddings import encode, load_model
+
+        self.model = load_model(model, st_kwargs)
+        self._encode = encode
         self.model_name = model
         self.a0_model_conf = model_config
 
@@ -738,14 +743,14 @@ class LocalSentenceTransformerWrapper(Embeddings):
         # Apply rate limiting if configured
         apply_rate_limiter_sync(self.a0_model_conf, " ".join(texts))
 
-        embeddings = self.model.encode(texts, convert_to_tensor=False)  # type: ignore
+        embeddings = self._encode(self.model, texts)
         return embeddings.tolist() if hasattr(embeddings, "tolist") else embeddings  # type: ignore
 
     def embed_query(self, text: str) -> List[float]:
         # Apply rate limiting if configured
         apply_rate_limiter_sync(self.a0_model_conf, text)
 
-        embedding = self.model.encode([text], convert_to_tensor=False)  # type: ignore
+        embedding = self._encode(self.model, [text])
         result = (
             embedding[0].tolist() if hasattr(embedding[0], "tolist") else embedding[0]
         )
@@ -927,3 +932,16 @@ def get_embedding_model(
     orig = provider.lower()
     provider_name, kwargs = _merge_provider_defaults("embedding", orig, kwargs)
     return _get_litellm_embedding(name, provider_name, model_config, **kwargs)
+
+
+def release_local_embedding_models() -> None:
+    """Drop cached local embedding weights after the model configuration changes.
+
+    Importing the loader just to clear it would pull torch into a process that
+    never embedded anything, so this is a no-op until the cache has been used.
+    """
+    module = sys.modules.get("python.helpers.local_embeddings")
+    if module is None:
+        return
+    module.clear_cache()
+    release_heap()

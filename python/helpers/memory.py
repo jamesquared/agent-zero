@@ -29,6 +29,7 @@ from python.helpers import knowledge_import
 from python.helpers.log import Log, LogItem
 from enum import Enum
 from agent import Agent, AgentContext
+from python.helpers.vector_db import VectorDB
 import models
 import logging
 from simpleeval import simple_eval
@@ -481,6 +482,9 @@ def get_custom_knowledge_subdir_abs(agent: Agent) -> str:
 def reload():
     # clear the memory index, this will force all DBs to reload
     Memory.index = {}
+    # Document query keeps its own embedding wrapper. Drop it so an embedding
+    # model change can release the shared weights.
+    VectorDB._cached_embeddings.clear()
 
 
 def abs_db_dir(memory_subdir: str) -> str:
